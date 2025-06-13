@@ -2,7 +2,7 @@ import { Client, GatewayIntentBits, Partials, ActivityType, EmbedBuilder } from 
 
 // ⚙️ Config from Render / .env const TOKEN      = process.env.DISCORD_TOKEN;   // bot token const GUILD_ID   = process.env.GUILD_ID;        // server ID const ROLE_ID    = process.env.ROLE_ID;         // role to grant const VANITY     = process.env.VANITY || "/vanir"; // string to look for (case‑insensitive) const CHANNEL_ID = process.env.CHANNEL_ID;      // channel to post embed const PORT       = process.env.PORT || 3000;    // Render keeps web services alive
 
-/* ------------------------------------------------------------------ Keep‑alive HTTP server so Render doesn’t spin the dyno down -------------------------------------------------------------------*/ http .createServer((_, res) => { res.writeHead(200, { "Content-Type": "text/plain" }); res.end("Bot is running\n"); }) .listen(PORT, () => console.log(🌐 Keep‑alive server on ${PORT}));
+/* ------------------------------------------------------------------ Keep‑alive HTTP server so Render doesn’t spin the dyno down -------------------------------------------------------------------*/ http .createServer((_, res) => { res.writeHead(200, { "Content-Type": "text/plain" }); res.end("Bot is running\n"); }) .listen(PORT, () => console.log(`🌐 Keep‑alive server on ${PORT}`);
 
 /* ------------------------------------------------------------------ Discord bot logic -------------------------------------------------------------------*/ const client = new Client({ intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildPresences, ], partials: [Partials.GuildMember, Partials.User], });
 
