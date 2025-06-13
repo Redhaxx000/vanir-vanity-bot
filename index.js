@@ -52,9 +52,6 @@ client.on("presenceUpdate", async (_oldPresence, newPresence) => {
 
       const channel = newPresence.guild.channels.cache.get(CHANNEL_ID);
       if (channel && channel.isTextBased()) {
-        // send mention as plain message
-        await channel.send(`${member} has repped **${VANITY}**`);
-
         const embed = new EmbedBuilder()
           .setColor(0x2f3136)
           .setThumbnail(newPresence.guild.iconURL())
@@ -67,7 +64,10 @@ client.on("presenceUpdate", async (_oldPresence, newPresence) => {
           .setFooter({ text: "rep /vanir in your status for perks" })
           .setTimestamp();
 
-        await channel.send({ embeds: [embed] });
+        await channel.send({
+          content: `${member} has repped **${VANITY}**`,
+          embeds: [embed],
+        });
       }
     }
 
