@@ -22,12 +22,14 @@ http
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Discord client â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const client = new Client({
+const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.GuildMessages,      // 👈 sees messages
+    GatewayIntentBits.MessageContent      // 👈 reads message text
   ],
-  partials: [Partials.GuildMember, Partials.User],
+  partials: [Partials.Channel]            // keep partials if you need them
 });
 
 const reppedUsers = new Set(); // to prevent repeat messages during session
