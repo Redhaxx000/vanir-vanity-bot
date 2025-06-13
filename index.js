@@ -30,6 +30,8 @@ const client = new Client({
   partials: [Partials.GuildMember, Partials.User],
 });
 
+const reppedUsers = new Set(); // to prevent repeat messages during session
+
 client.once("ready", () => {
   console.log(`âœ… Logged in as ${client.user.tag}`);
 });
@@ -46,8 +48,9 @@ client.on("presenceUpdate", async (_oldPresence, newPresence) => {
     const member = await newPresence.guild.members.fetch(newPresence.userId);
     const alreadyHasRole = member.roles.cache.has(ROLE_ID);
 
-    if (hasVanity && !alreadyHasRole) {
+    if (hasVanity && !alreadyHasRole && !reppedUsers.has(member.id)) {
       await member.roles.add(ROLE_ID, "Vanity detected in custom status");
+      reppedUsers.add(member.id);
       console.log(`ðŸŽ‰ Added role to ${member.user.tag}`);
 
       const channel = newPresence.guild.channels.cache.get(CHANNEL_ID);
@@ -56,7 +59,7 @@ client.on("presenceUpdate", async (_oldPresence, newPresence) => {
           .setColor(0x2f3136)
           .setThumbnail(newPresence.guild.iconURL())
           .setDescription([
-            "_ _     thank you for repping us    　  𓂃",
+            "_ _     thank you for repping us    　  𓂃 ",
             "> **pic** __perms__",
             "> **sticker** __perms__",
             "> **cam** __perms__",
@@ -73,6 +76,7 @@ client.on("presenceUpdate", async (_oldPresence, newPresence) => {
 
     if (!hasVanity && alreadyHasRole) {
       await member.roles.remove(ROLE_ID, "Vanity removed from custom status");
+      reppedUsers.delete(member.id);
       console.log(`ðŸš« Removed role from ${member.user.tag}`);
     }
   } catch (err) {
