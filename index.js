@@ -1,14 +1,9 @@
 /**
- * Discord Vanity-Role Bot
- * - Grants a role the first time a member’s custom status contains the vanity tag
- * - Pings + embeds ONCE per user (persists across restarts)
- * - All IDs (role / channel) are set via slash commands, not env vars
- *
- * Slash sub-commands (Manage Server required):
- *   /vanity role    <@role>      – set / change the role the bot gives
- *   /vanity channel <#channel>   – set / change the channel for announcements
- *   /vanity message <text>       – change the body of the embed (use \n or {nl})
- *   /vanity resetping            – clear the “already-pinged” memory for this guild
+ * Discord Vanity-Role Bot  ●  https://github.com/
+ * - Grants a role the first time a member’s custom-status, bio, or pronouns
+ *   contains the vanity tag (default “/vanir”).
+ * - Pings + embeds ONCE per user (persists across restarts).
+ * - All role/channel/message settings done via slash commands, not env vars.
  */
 
 import {
@@ -26,15 +21,15 @@ import * as http from "node:http";
 import "dotenv/config";
 import fs from "fs";
 
-// ────────────────────────── ENV ONLY NEEDS TOKEN & CLIENT_ID ──────────────────────────
-const TOKEN     = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;               // your application / bot ID
-const PORT      = process.env.PORT || 3000;             // for Render keep-alive
+// ─────────────── ENV (only token & app ID needed) ───────────────
+const TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const PORT = process.env.PORT || 3000;
 
-const PING_FILE   = "./pinged.json";   // { guildId: [userIds...] }
-const CONFIG_FILE = "./guild_config.json"; // { guildId: { roleId, channelId, embedLines[] } }
+// ─────────────── Disk persistence ───────────────
+const PING_FILE = "./pinged.json";          // { guildId: [userIds] }
+const CFG_FILE  = "./guild_config.json";    // { guildId: { roleId, channelId, embedLines[] } }
 
-// ────────────────────────── SMALL DISK HELPERS ──────────────────────────
 function loadJSON(path, fallback) {
   try { return fs.existsSync(path) ? JSON.parse(fs.readFileSync(path)) : fallback; }
   catch { return fallback; }
@@ -43,36 +38,33 @@ function saveJSON(path, data) {
   try { fs.writeFileSync(path, JSON.stringify(data, null, 2)); } catch {/* ignore */}
 }
 
-const pinged = loadJSON(PING_FILE, {});          // Map<guildId, string[]>
-const guildCfg = loadJSON(CONFIG_FILE, {});      // Map<guildId, {roleId, channelId, embedLines[]}>
+const pinged   = loadJSON(PING_FILE, {});   // remember pings
+const guildCfg = loadJSON(CFG_FILE,  {});   // per-guild config
 
-// ────────────────────────── KEEP-ALIVE SERVER (Render) ──────────────────────────
+// ─────────────── Keep-alive for Render ───────────────
 http.createServer((_, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("Bot is running\n");
 }).listen(PORT, () => console.log("🌐 Keep-alive server on " + PORT));
 
-// ────────────────────────── SLASH COMMANDS ──────────────────────────
+// ─────────────── Slash command schema ───────────────
 const slash = new SlashCommandBuilder()
   .setName("vanity")
-  .setDescription("Vanity-role bot controls (Manage Server only)")
+  .setDescription("Vanity-role bot controls (Manage Server)")
   .addSubcommand(s =>
-    s.setName("role")
-     .setDescription("Set the role to give")
-     .addRoleOption(o => o.setName("role").setDescription("Role").setRequired(true)))
+    s.setName("role").setDescription("Set the role to give")
+      .addRoleOption(o => o.setName("role").setDescription("Role").setRequired(true)))
   .addSubcommand(s =>
-    s.setName("channel")
-     .setDescription("Set the channel for announcements")
-     .addChannelOption(o => o.setName("channel").setDescription("Channel").setRequired(true)))
+    s.setName("channel").setDescription("Set the announcement channel")
+      .addChannelOption(o => o.setName("channel").setDescription("Channel").setRequired(true)))
   .addSubcommand(s =>
-    s.setName("message")
-     .setDescription("Set the embed body (use \\n or {nl} for line breaks)")
-     .addStringOption(o => o.setName("text").setDescription("Body").setRequired(true)))
-  .addSubcommand(s => s.setName("resetping").setDescription("Clear ‘already-pinged’ memory"));
+    s.setName("message").setDescription("Set embed body")
+      .addStringOption(o => o.setName("text").setDescription("Use \\n or {nl} for breaks").setRequired(true)))
+  .addSubcommand(s => s.setName("resetping").setDescription("Clear already-pinged list"));
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-// ────────────────────────── DISCORD CLIENT ──────────────────────────
+// ─────────────── Discord client ───────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -82,40 +74,47 @@ const client = new Client({
   partials: [Partials.GuildMember, Partials.User],
 });
 
-// Register commands per-guild on startup for instant updates
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
-  try {
-    for (const [guildId] of client.guilds.cache) {
-      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guildId), { body: [slash.toJSON()] });
-    }
-    console.log("✅ Slash commands registered in all guilds.");
-  } catch (err) {
-    console.error("Slash registration error:", err);
-  }
+  for (const [gid] of client.guilds.cache)
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, gid), { body: [slash.toJSON()] });
+  console.log("✅ Slash commands registered");
 });
 
-// ────────────────────────── PRESENCE HANDLER ──────────────────────────
-const VANITY = "/vanir";                    // hard-coded tag (edit if you want)
+// ─────────────── Helpers ───────────────
+const VANITY = "/vanir";   // hard-coded tag; change here if needed
 
+async function profileHasTag(user, tag) {
+  try {
+    // Force-fetch to get bio/pronouns (requires bot privileged scope on Discord ≥ 2024-Q4)
+    const prof = await user.fetch(true);
+    const bio = prof.bio?.toLowerCase() || "";
+    const pron = prof.pronouns?.toLowerCase() || "";
+    return bio.includes(tag) || pron.includes(tag);
+  } catch { return false; }
+}
+
+// ─────────────── Presence handler ───────────────
 client.on("presenceUpdate", async (_old, pres) => {
   const g = pres?.guild;
   if (!g) return;
 
   const cfg = guildCfg[g.id];
-  if (!cfg?.roleId || !cfg?.channelId) return; // not configured
+  if (!cfg?.roleId || !cfg?.channelId) return;            // not configured yet
 
+  const member = await g.members.fetch(pres.userId);
   const custom = pres.activities.find(a => a.type === ActivityType.Custom && a.state);
-  const hasVanity = custom && custom.state.toLowerCase().includes(VANITY);
-  const m = await g.members.fetch(pres.userId);
+  const tagInStatus = custom && custom.state.toLowerCase().includes(VANITY);
+  const tagInProfile = await profileHasTag(member.user, VANITY);
+  const tagPresent = tagInStatus || tagInProfile;
 
-  const hasRole = m.roles.cache.has(cfg.roleId);
-  const alreadyPinged = (pinged[g.id] ?? []).includes(m.id);
+  const hasRole = member.roles.cache.has(cfg.roleId);
+  const wasPinged = (pinged[g.id] ?? []).includes(member.id);
 
-  /* ───── Give role & ping ONCE ───── */
-  if (hasVanity && !hasRole) {
-    await m.roles.add(cfg.roleId, "Vanity detected");
-    if (!alreadyPinged) {
+  // Give role & announce once
+  if (tagPresent && !hasRole) {
+    await member.roles.add(cfg.roleId, "Vanity detected");
+    if (!wasPinged) {
       const ch = g.channels.cache.get(cfg.channelId);
       if (ch?.isTextBased()) {
         const lines = cfg.embedLines ?? [
@@ -124,62 +123,59 @@ client.on("presenceUpdate", async (_old, pres) => {
           "> **sticker** __perms__",
           "> **cam** __perms__",
         ];
-
         const embed = new EmbedBuilder()
           .setColor(0x2f3136)
           .setThumbnail(g.iconURL())
           .setDescription(lines.join("\n"))
           .setFooter({ text: "rep /vanir in your status for perks" })
           .setTimestamp();
-
-        await ch.send({ content: `${m} has repped **${VANITY}**`, embeds: [embed] });
+        await ch.send({ content: `${member} has repped **${VANITY}**`, embeds: [embed] });
       }
-      pinged[g.id] = [...(pinged[g.id] ?? []), m.id];
+      pinged[g.id] = [...(pinged[g.id] ?? []), member.id];
       saveJSON(PING_FILE, pinged);
     }
   }
 
-  /* ───── Remove role if tag gone but custom status still exists ───── */
-  if (hasRole && custom && !hasVanity) {
-    await m.roles.remove(cfg.roleId, "Vanity removed");
+  // Remove role if tag completely gone (status + profile)
+  if (hasRole && !tagPresent && custom) {
+    await member.roles.remove(cfg.roleId, "Vanity removed");
   }
 });
 
-// ────────────────────────── SLASH COMMAND HANDLER ──────────────────────────
-client.on("interactionCreate", async (int) => {
+// ─────────────── Slash command handler ───────────────
+client.on("interactionCreate", async int => {
   if (!int.isChatInputCommand() || int.commandName !== "vanity") return;
 
-  if (!int.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-    return int.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
-  }
+  if (!int.member.permissions.has(PermissionsBitField.Flags.ManageGuild))
+    return int.reply({ content: "You need **Manage Server**.", ephemeral: true });
 
   const g = int.guild;
-  guildCfg[g.id] = guildCfg[g.id] || {};
+  guildCfg[g.id] = guildCfg[g.id] ?? {};
 
   switch (int.options.getSubcommand()) {
     case "role":
       guildCfg[g.id].roleId = int.options.getRole("role").id;
-      saveJSON(CONFIG_FILE, guildCfg);
+      saveJSON(CFG_FILE, guildCfg);
       return int.reply({ content: "✅ Role set.", ephemeral: true });
 
     case "channel":
       guildCfg[g.id].channelId = int.options.getChannel("channel").id;
-      saveJSON(CONFIG_FILE, guildCfg);
+      saveJSON(CFG_FILE, guildCfg);
       return int.reply({ content: "✅ Channel set.", ephemeral: true });
 
     case "message":
       guildCfg[g.id].embedLines = int.options.getString("text")
         .replace(/\\{nl\\}/g, "\\n")
         .split(/\\n/);
-      saveJSON(CONFIG_FILE, guildCfg);
-      return int.reply({ content: "✅ Embed body updated.", ephemeral: true });
+      saveJSON(CFG_FILE, guildCfg);
+      return int.reply({ content: "✅ Embed updated.", ephemeral: true });
 
     case "resetping":
       pinged[g.id] = [];
       saveJSON(PING_FILE, pinged);
-      return int.reply({ content: "✅ Ping memory cleared for this guild.", ephemeral: true });
+      return int.reply({ content: "✅ Ping memory cleared.", ephemeral: true });
   }
 });
 
-// ────────────────────────── LOGIN ──────────────────────────
+// ─────────────── Login ───────────────
 client.login(TOKEN);
